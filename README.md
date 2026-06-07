@@ -58,8 +58,8 @@ Restart Claude Code (or start a new session). The skill auto-loads by its descri
 
 - All decimals are fractions (24% → `0.24`); all figures are today's (real, inflation-adjusted)
   dollars; tax brackets/limits are approximate ~2026 values.
-- The skill surfaces every assumption the server reports (`disclosures.key_assumptions`) so you can
-  correct any silent default.
+- The skill surfaces every assumption the server reports — each tool returns a structured
+  `assumed_defaults[]` (`{ field, assumed_value, note }`) — so you can correct any silent default.
 - Not financial advice. Planning estimates only.
 
 See `SKILL.md` for the full instructions, exact tool params, and output format.
