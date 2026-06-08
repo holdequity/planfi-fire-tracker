@@ -14,8 +14,8 @@ tools — it does **not** compute anything locally and bakes in no defaults of i
 ## Step 0 — Make sure the planfi tools are connected
 
 This skill uses these tools (may be namespaced, e.g. `mcp__planfi__analyze_already_won`):
-`analyze_already_won`, `analyze_fire_benchmark`, `analyze_milestones`, `solve_goal`, plus optional
-`generate_financial_plan` (for `plan_id` chaining + a `share_url`). Use whichever name your
+`analyze_already_won`, `analyze_fire_benchmark`, `analyze_fire_variants`, `analyze_milestones`,
+`solve_goal`, plus optional `generate_financial_plan` (for `plan_id` chaining + a `share_url`). Use whichever name your
 environment exposes (bare or `mcp__planfi__`-prefixed); below they are written bare.
 
 If they're NOT available, tell the user to connect the MCP, then continue:
@@ -29,12 +29,13 @@ claude mcp add --transport http planfi https://ai.planfi.app/mcp
 ## Step 1 — (Optional but preferred) build a plan first to chain context + get a share link
 
 If the user has (or wants) a full household model, call **`generate_financial_plan`** once and
-**capture the returned `plan_id`**. **Three of the four** tools — `analyze_already_won`,
-`analyze_milestones`, and `solve_goal` — accept `{ plan_id }` (plus an `overrides` object), so they
-can resolve the household from the saved plan instead of you re-sending every figure.
-`generate_financial_plan` returns a **`share_url`** (planfi.app). `analyze_already_won` also returns
-a `share_url` whenever you pass a `plan_id` that resolves, and `solve_goal` returns a `share_url` on
-every call (it always builds one from the resolved plan).
+**capture the returned `plan_id`**. **Four of the five** tools — `analyze_already_won`,
+`analyze_milestones`, `analyze_fire_variants`, and `solve_goal` — accept `{ plan_id }` (plus an
+`overrides` object), so they can resolve the household from the saved plan instead of you re-sending
+every figure.
+`generate_financial_plan` returns a **`share_url`** (planfi.app). `analyze_already_won` and
+`analyze_fire_variants` also return a `share_url` whenever you pass a `plan_id` that resolves, and
+`solve_goal` returns a `share_url` on every call (it always builds one from the resolved plan).
 
 > **`analyze_fire_benchmark` is the exception: it takes raw inputs ONLY (NO `plan_id`).** Pass its
 > figures (`annual_income`, `annual_savings`, `liquid_net_worth`) directly — do not try to chain a
@@ -78,6 +79,27 @@ three required figures.
 analyze_fire_benchmark({ annual_income: 140000, annual_savings: 49000, liquid_net_worth: 450000 })
 ```
 
+### "What's my Lean / Fat / Barista FIRE number?" → `analyze_fire_variants`
+Computes the Lean / Standard / Fat target tiers (target net worth = annual spend / SWR), each with
+`target_net_worth`, `fire_pct`, `surplus_or_gap` and `years_to_target`, plus an optional Barista-FIRE
+bridge where part-time NET income (after federal tax) covers a spending gap so a SMALLER portfolio is
+needed before full drawdown (`barista_fire_number`, `barista_reduction_vs_full`, `barista_fire_pct`).
+REQUIRED: `current_age`, `liquid_net_worth`, `annual_savings`, `base_annual_spend`. Optional:
+`lean_annual_spend` (default 70% of base), `fat_annual_spend` (default 160% of base),
+`safe_withdrawal_rate` (0.04), `real_return` (0.05), `filing_status` (single), and for the bridge
+`barista_part_time_income` + `barista_end_age` (+ `barista_other_taxable_income`). Accepts `plan_id`
+(+ `overrides`, + `name` for the share link).
+
+```
+analyze_fire_variants({ current_age: 40, liquid_net_worth: 600000, annual_savings: 30000, base_annual_spend: 60000, barista_part_time_income: 25000, barista_end_age: 55 })
+```
+
+When the Barista bridge looks feasible (`barista_fire_pct` ≥ 100 or close, `barista_spending_gap`
+comfortably covered), chain `analyze_already_won` to confirm the smaller Barista number is already
+funded; when a tier is still short, chain `solve_goal` to rank the easiest levers to reach it. This
+tool returns `assumed_defaults[]`, a `share_url` when a `plan_id` resolves, and `next_actions[]`
+edges (→ `solve_goal`, → `analyze_already_won`).
+
 ### "What milestones have I hit?" → `analyze_milestones`
 Returns the net-worth milestones crossed in `newly_reached[]` (each `{ type, label, headline,
 net_worth }`).
@@ -116,18 +138,20 @@ For whichever tool you called:
   estimates, not financial advice.
 - **Follow `next_actions[]`** — each is `{ tool, why, prefilled_args }` (carrying `{ plan_id }` when
   available). Only some tools emit edges: `solve_goal` → `generate_action_plan`;
-  `generate_financial_plan` → `generate_financial_insights`, `check_model_completeness`, and
-  commentary tools. `analyze_already_won`, `analyze_milestones`, and `analyze_fire_benchmark`
-  currently return no `next_actions` edges, so chain by intent yourself there.
+  `analyze_fire_variants` → `solve_goal` / `analyze_already_won`; `generate_financial_plan` →
+  `generate_financial_insights`, `check_model_completeness`, and commentary tools.
+  `analyze_already_won`, `analyze_milestones`, and `analyze_fire_benchmark` currently return no
+  `next_actions` edges, so chain by intent yourself there.
 - **For a share link:** `solve_goal` always returns a `share_url`; `analyze_already_won` returns one
-  when given a resolving `plan_id`; `generate_financial_plan` always returns one. `analyze_milestones`
-  and `analyze_fire_benchmark` do not — run `generate_financial_plan` (Step 1) for a sharable plan.
+  when given a resolving `plan_id`; `analyze_fire_variants` returns one when given a resolving
+  `plan_id`; `generate_financial_plan` always returns one. `analyze_milestones` and
+  `analyze_fire_benchmark` do not — run `generate_financial_plan` (Step 1) for a sharable plan.
 
 ## Recommended call sequence (typical session)
 
 1. (preferred) `generate_financial_plan` → capture `plan_id` (+ `share_url`) — note
    `analyze_fire_benchmark` won't use the `plan_id`.
-2. Route by intent → one of the four tools (with `{ plan_id }` where accepted, plus the REQUIRED raw
+2. Route by intent → one of the five tools (with `{ plan_id }` where accepted, plus the REQUIRED raw
    fields).
 3. Read back the headline + the tool's `assumed_defaults[]`.
 4. Follow any `next_actions[]` the tool returns (`solve_goal` suggests `generate_action_plan`); for
@@ -148,19 +172,29 @@ verdict).
 the easiest-first `ranked_levers` (e.g. bump savings rate, trim spend, push retire age) it returns;
 surface the `share_url` `solve_goal` itself returns. Read back `assumed_defaults[]`.
 
-*(Both examples use fictional figures — never reuse a real user's numbers in documentation.)*
+**3.** *"I'm 40 with $600k invested, saving $30k/yr, spending $60k — what's my Lean vs Fat FIRE number, and could I Barista-FIRE on a $25k/yr part-time job until 55?"*
+→ `analyze_fire_variants({ current_age: 40, liquid_net_worth: 600000, annual_savings: 30000, base_annual_spend: 60000, barista_part_time_income: 25000, barista_end_age: 55 })`.
+Lead with the three tiers (Lean / Standard / Fat `target_net_worth` + `fire_pct` + `years_to_target`)
+and the Barista bridge — `barista_fire_number` (smaller than `full_fire_number` because part-time NET
+income covers `barista_spending_gap`), `barista_reduction_vs_full`, and `barista_fire_pct`. If the
+Barista number is already covered, chain `analyze_already_won`; if a tier is short, chain `solve_goal`
+for the easiest levers. Read back `assumed_defaults[]` (Lean 70% / Fat 160% of base, SWR, real return).
+
+*(All examples use fictional figures — never reuse a real user's numbers in documentation.)*
 
 ## Notes
 
 - All rates/decimals are fractions; all dollars are today's (real) dollars; any thresholds are ~2026.
 - REQUIRED raw inputs that can't be inferred: `analyze_already_won` needs `liquid_net_worth` +
   `annual_spend`; `analyze_fire_benchmark` needs `annual_income` + `annual_savings` +
-  `liquid_net_worth`; `analyze_milestones` needs `net_worth`; `solve_goal` needs `target_fire_age`
-  (20–100) plus a plan (inline or `plan_id`). Ask for them before calling.
+  `liquid_net_worth`; `analyze_fire_variants` needs `current_age` + `liquid_net_worth` +
+  `annual_savings` + `base_annual_spend`; `analyze_milestones` needs `net_worth`; `solve_goal` needs
+  `target_fire_age` (20–100) plus a plan (inline or `plan_id`). Ask for them before calling.
 - Pass `{ plan_id }` to reuse a saved household model on `analyze_already_won`, `analyze_milestones`,
-  and `solve_goal`; pass an `overrides` object for inline changes on top of the resolved plan.
+  `analyze_fire_variants`, and `solve_goal`; pass an `overrides` object for inline changes on top of
+  the resolved plan.
   **`analyze_fire_benchmark` does NOT accept `plan_id`** — pass its figures raw.
-- All four tools return a structured `assumed_defaults[]` (`{ field, assumed_value, note }`) — read
+- All five tools return a structured `assumed_defaults[]` (`{ field, assumed_value, note }`) — read
   it back to the user. `disclosures.key_assumptions` is separate static method prose;
   `disclosures.not_advice` is a boolean. `solve_goal` always returns a `share_url`,
   `analyze_already_won` returns one when given a resolving `plan_id`; for the other two, chain
