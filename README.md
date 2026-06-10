@@ -65,6 +65,19 @@ Restart Claude Code (or start a new session). The skill auto-loads by its descri
 See `SKILL.md` for the full instructions, exact tool params, and output format.
 Source + issues: <https://github.com/holdequity/planfi-fire-tracker>.
 
+## Routing eval
+
+This skill is behaviorally tested: an LLM eval asks it real questions and checks it routes each to the
+right planfi MCP tool — and that it *avoids* calling a tool on out-of-domain questions.
+
+![routing recall](https://img.shields.io/badge/routing%20recall-75%25-yellow) ![precision](https://img.shields.io/badge/precision-100%25-brightgreen)
+
+- **Positive cases — called the right tool:** 3/4 (75%)
+- **Negative cases — avoided the wrong call:** 1/1 (100%)
+- **Model:** `claude-sonnet-4-6` · last run 2026-06-10
+
+_Behavioral routing eval — sampled + non-deterministic, not a guarantee. Source: the [`holdequity/planfi-app`](https://github.com/holdequity/planfi-app) `evals/` harness._
+
 ## Use it in any MCP client (not just Claude Code)
 
 This skill is Claude Code packaging — but the engine is a standard
